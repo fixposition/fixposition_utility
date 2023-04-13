@@ -23,9 +23,13 @@ import requests
 import websockets  # type: ignore
 import argparse
 
-url_upload = "http://{}:8080/upload"
-url_status = "ws://{}:8080/ws"
+# For software version 2.63 or newer (after 09.03.2023)
+url_upload = "http://{}/update/upload"
+url_status = "ws://{}/update/ws"
 
+# For software version 2.58.2 or older (before 17.01.2023)
+# url_upload = "http://{}:8080/upload"
+# url_status = "ws://{}:8080/ws"
 
 async def wait_update_finished(
     swu_file: str, target_ip: str, timeout: int = 300
@@ -78,14 +82,10 @@ def main() -> None:
         )
 
         if response.status_code != 200:
-            raise Exception(
-                "Cannot upload software image: {}".format(response.status_code)
-            )
+            raise Exception("Cannot upload software image: {}".format(response.status_code))
 
-        print(
-            "Software image uploaded successfully. Wait for installation to be finished...\n"
-        )
-        asyncio.sleep(1)
+        print("Software image uploaded successfully. Wait for installation to be finished...\n")
+
         asyncio.get_event_loop().run_until_complete(
             wait_update_finished(args.path, args.ip, timeout=args.timeout)
         )
