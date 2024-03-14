@@ -13,6 +13,7 @@
 
 /* LIBC/STL */
 #include <cerrno>
+#include <cinttypes>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -29,6 +30,7 @@
 #include <ros/console.h>
 #include <rosbag/bag.h>
 #include <topic_tools/shape_shifter.h>
+#include <std_msgs/UInt8MultiArray.h>
 #pragma GCC diagnostic pop
 #include <getopt.h>
 #include <unistd.h>
@@ -126,7 +128,9 @@ class FplParser {
                 size_--;
             } else {
                 if (offs_ > 0) {
-                    ROS_WARN("FplParser: bad data");
+                    ROS_WARN("FplParser: ignoring noise (%" PRIuMAX ")", offs_);
+                    std::memmove(&buf_[0], &buf_[offs_], size_);
+                    offs_ = 0;
                 }
                 size_ -= msg_size;
                 if (size_ > 0) {
@@ -295,6 +299,57 @@ class BagWriter {
         return true;
     }
 
+    bool AddMsgRaw(const uint8_t* data, const uint32_t size) {
+        if (!bag_) {
+            return false;
+        }
+
+        ros::Time rec_time;
+        std::memcpy(&rec_time.sec, &data[0], sizeof(rec_time.sec));
+        std::memcpy(&rec_time.nsec, &data[sizeof(rec_time.sec)], sizeof(rec_time.nsec));
+
+        bool ok = true;
+
+        const uint32_t name_offs = 2 * sizeof(uint32_t);
+        const std::string stream_name{(const char*)&data[name_offs]};
+        if (stream_name.size() > 100) {
+            ok = false;
+        }
+
+        const uint32_t size_offs = name_offs + stream_name.size() + 1;
+        uint32_t frame_size = 0;
+        if (ok && (size > (size_offs + sizeof(frame_size)))) {
+            std::memcpy(&frame_size, &data[size_offs], sizeof(frame_size));
+        } else {
+            ok = false;
+        }
+
+        const uint32_t frame_offs = size_offs + sizeof(frame_size);
+        if (ok && (size >= (frame_offs + frame_size))) {
+            const uint8_t* frame_bin = &data[frame_offs];
+            std_msgs::UInt8MultiArray raw;
+            raw.layout.dim.push_back(std_msgs::MultiArrayDimension());
+            raw.layout.dim[0].stride = 1;
+            raw.layout.dim[0].label = "bytes";
+            raw.layout.dim[0].size = frame_size;
+            raw.data = {frame_bin, frame_bin + frame_size};
+            const std::string topic_name = "/" + (stream_name == "corr" ? "ntrip" : stream_name) + "/raw";
+            try {
+                bag_->write(topic_name, rec_time, raw);
+            } catch (std::exception& e) {
+                ROS_WARN("BagWriter write fail: %s", e.what());
+                return false;
+            }
+        } else {
+            ok = false;
+        }
+
+        if (!ok) {
+            ROS_WARN("BagWriter: bad raw message");
+        }
+        return ok;
+    }
+
    private:
     std::unique_ptr<rosbag::Bag> bag_;
     std::map<std::string, boost::shared_ptr<ros::M_string>> connection_headers_;
@@ -444,6 +499,10 @@ int main(int argc, char** argv) {
                 }
             } else if (type == 2) {
                 if (!writer.AddMsgBin(fpl_msg.PayloadData(), fpl_msg.PayloadSize())) {
+                    ok = false;
+                }
+            } else if (type == 6) {
+                if (!writer.AddMsgRaw(fpl_msg.PayloadData(), fpl_msg.PayloadSize())) {
                     ok = false;
                 }
             }

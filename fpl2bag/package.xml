@@ -13,4 +13,5 @@
     <depend>roscpp</depend>
     <depend>rosbag</depend>
     <depend>topic_tools</depend>
+    <depend>std_msgs</depend>
 </package>
