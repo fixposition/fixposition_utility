@@ -22,7 +22,18 @@ find_package(catkin REQUIRED COMPONENTS
     roscpp
     rosbag
     topic_tools
+    std_msgs
 )
+
+catkin_package(
+    #LIBRARIES
+    CATKIN_DEPENDS
+    roscpp
+    rosbag
+    topic_tools
+    std_msgs
+)
+
 include_directories(include ${catkin_INCLUDE_DIRS})
 
 # BUILD EXECUTABLES =================================================================================================
@@ -30,4 +41,9 @@ add_executable(fpl2bag src/fpl2bag.cpp)
 target_link_libraries(fpl2bag ${catkin_LIBRARIES})
 
 # INSTALL ==============================================================================================================
-install(TARGETS fpl2bag RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+install(TARGETS fpl2bag
+    EXPORT ${PROJECT_NAME}_Targets
+    LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+    ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+    RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
