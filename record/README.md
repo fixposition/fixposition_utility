@@ -1,6 +1,6 @@
 # Fixposition Recording Utilities
 
-Recording over network (ethernet) for Vision-RTK 2, software version 2.58.3 or 2.90.0 and later.
+Recording over network (ethernet) for Vision-RTK 2, software version 2.85.3 or 2.90.0 and later.
 
 ---
 ## record.sh
