@@ -1,9 +1,11 @@
 # Fixposition Recording Utilities
 
+Recording over network (ethernet) for Vision-RTK 2, software version 2.58.3 or 2.90.0 and later.
+
+---
 ## record.sh
 
-This script demonstrates how to record from the VRTK2 sensor (software version 2.85.3, or 2.90.0 or later) over
-ethernet. Note that this script has only minimal error handling.
+A minimal demonstration for using the recording API. There is no error handling.
 
 ### Dependencies
 
@@ -16,6 +18,23 @@ ethernet. Note that this script has only minimal error handling.
 ```sh
 ./record.sh 10.0.2.1 medium
 ```
+
+---
+## record.py
+
+A more sophisticated script with error handling and status reporting.
+
+### Dependencies
+
+- Linux
+- Python 3 (tested with 3.10)
+
+### Usage
+
+```sh
+./record.py 10.0.2.1 medium
+```
+q
 
 ## License
 
