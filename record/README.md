@@ -34,8 +34,8 @@ A more sophisticated script with error handling and status reporting.
 ```sh
 ./record.py 10.0.2.1 medium
 ```
-q
 
+---
 ## License
 
 MIT, see [LICENSE](LICENSE)
