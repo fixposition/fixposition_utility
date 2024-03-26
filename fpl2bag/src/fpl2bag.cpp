@@ -396,12 +396,12 @@ int main(int argc, char** argv) {
                 std::fputs(
                     "Usage:\n"
                     "\n"
-                    "    fpl2bag [-v] [-q] [-f] [-c] -i <input_fpl> -o <output_bag>\n"
+                    "    fpl2bag [-v] [-q] [-f] [-c] [-o <output_bag>] -i <input_fpl>\n"
                     "\n"
                     "Where:\n"
                     "\n"
                     "    -i <input_fpl>  -- Path to input .fpl file\n"
-                    "    -o <output_bag> -- Path to output .bag file\n"
+                    "    -o <output_bag> -- Path to output .bag file (optional, default is <input_fpl> - .fpl + .bag)\n"
                     "    -v / -q         -- Increase / decrease verbosity\n"
                     "    -f              -- Force overwrite existing output\n"
                     "    -c              -- Compress output bag, -c -c -- compress more\n"
@@ -454,6 +454,11 @@ int main(int argc, char** argv) {
                 ros::console::notifyLoggerLevelsChanged();
             }
         }
+    }
+
+    // Default output bag
+    if (!input_fpl.empty() && output_bag.empty() && (input_fpl.size() > 4)) {
+        output_bag = input_fpl.substr(0, input_fpl.size() - 4) + ".bag";
     }
 
     // Check arguments
