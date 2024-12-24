@@ -20,6 +20,7 @@ packages=$(awk -v filt=${FPSDK_IMAGE%-*} '$1 ~ filt { print $2 }' <<EOF
     noetic.humble.jazzy.bookworm    libcurl4-openssl-dev
     noetic.humble.jazzy.bookworm    libeigen3-dev
     ..............jazzy.bookworm    libgtest-dev
+    noetic.humble.jazzy.bookworm    libpath-tiny-perl
     noetic.humble.jazzy.bookworm    libsqlite3-dev
     noetic.humble.jazzy.bookworm    libtiff-dev
     noetic.humble.jazzy.bookworm    libyaml-cpp-dev

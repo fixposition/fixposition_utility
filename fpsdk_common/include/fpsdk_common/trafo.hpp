@@ -47,8 +47,8 @@ static constexpr double WGS84_A = 6378137.0;                  //!< WGS-84 Earth 
 static constexpr double WGS84_B = 6356752.314245;             //!< WGS-84 Earth radius minor axis [m]
 static constexpr double WGS84_1F = 298.257223563;             //!< WGS-84 1/f inverse of flattening parameter
 static constexpr double WGS84_E2 = 6.69437999014e-3;          //!< WGS-84 first eccentricity squared
-static constexpr double WGS84_A2 = WGS84_A * WGS84_A;         //!< WGS-84 a_^2
-static constexpr double WGS84_B2 = WGS84_B * WGS84_B;         //!< WGS-84 b_^2
+static constexpr double WGS84_A2 = WGS84_A * WGS84_A;         //!< WGS-84 a^2
+static constexpr double WGS84_B2 = WGS84_B * WGS84_B;         //!< WGS-84 b^2
 static constexpr double WGS84_EE2 = WGS84_A2 / WGS84_B2 - 1;  //!< WGS-84 e'^2 second eccentricity squared
 ///@}
 
@@ -74,9 +74,9 @@ Eigen::Matrix3d RotEnuEcef(const Eigen::Vector3d& ecef);
 /**
  * @brief Returns rotation matrix between NED and ENU
  *
- * @details | 0, 1, 0 |
- *          | 1, 0, 0 |
- *          | 0, 0,-1 |
+ *     | 0, 1, 0 |
+ *     | 1, 0, 0 |
+ *     | 0, 0,-1 |
  *
  * @returns the rotation matrix between NED and ENU
  */
@@ -159,7 +159,7 @@ Eigen::Vector3d TfWgs84LlhEcef(const Eigen::Vector3d& ecef);
 /**
  * @brief Calculate yaw, pitch and roll in ENU from a given pose in ECEF
  *
- * @details Yaw will be -Pi/2 when X is pointing North, because ENU starts with East
+ * Yaw is -Pi/2 when X points North, because ENU starts with East
  *
  * @param[in]  ecef_p  3D position vector in ECEF
  * @param[in]  ecef_r  3x3 rotation matrix representing rotation from body to ECEF
@@ -235,7 +235,7 @@ class Transformer
     /**
      * @brief Transform coordinates
      *
-     * @param[in,out]  inout  Coordinates to transform, will be replaced with result
+     * @param[in,out]  inout  Coordinates to transform, replaced with result
      * @param[in]      inv    Do the inverse transformation (true), default is forward (false)
      *
      * @returns true on success, false otherwise
