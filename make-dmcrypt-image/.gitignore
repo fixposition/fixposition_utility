@@ -1,2 +1,5 @@
 /*.img
 /*.key
+/make-dmcrypt-image-kcapi
+/make-dmcrypt-image-openssl
+
