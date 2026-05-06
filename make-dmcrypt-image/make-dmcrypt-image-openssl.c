@@ -4,7 +4,7 @@
  *  /  /\  \
  * /__/  \__\
  *
- * Tool to create dm-crypt compatible disk images
+ * Tool to create dm-crypt compatible disk images (using OpenSSL)
  *
  * MIT License
  *
@@ -32,13 +32,16 @@
 #include <errno.h>
 #include <getopt.h>
 #include <inttypes.h>
-#include <kcapi.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+//
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/sha.h>
 
 #define UNUSED(thing) (void)thing
 #define NUMOF(x) (int)(sizeof(x) / sizeof(*(x)))
@@ -50,15 +53,6 @@ typedef enum scheme_e {
     SCHEME_AES_CBC_ESSIV_SHA256 = 2,
 } scheme_t;
 
-static const char* CipherName(const scheme_t scheme) {
-    switch (scheme) {  // clang-format off
-        case SCHEME_UNSPECIFIED:          break;
-        case SCHEME_AES_XTS_PLAIN:        return "xts(aes)";
-        case SCHEME_AES_CBC_ESSIV_SHA256: return "cbc(aes)";
-    }  // clang-format on
-    return "?";
-}
-
 static const char* SchemeName(const scheme_t scheme) {
     switch (scheme) {  // clang-format off
         case SCHEME_UNSPECIFIED:          break;
@@ -66,6 +60,67 @@ static const char* SchemeName(const scheme_t scheme) {
         case SCHEME_AES_CBC_ESSIV_SHA256: return "aes-cbc-essiv:sha256";
     }  // clang-format on
     return "?";
+}
+
+static const char* CipherName(const scheme_t scheme, int key_size) {
+    switch (scheme) {  // clang-format off
+        case SCHEME_UNSPECIFIED:          break;
+        case SCHEME_AES_XTS_PLAIN:
+            return (key_size == 64) ? "aes-256-xts" : "aes-128-xts";
+        case SCHEME_AES_CBC_ESSIV_SHA256: return "aes-128-cbc";
+    }  // clang-format on
+    return "?";
+}
+
+static void PrintSslError(const char* what) {
+    const unsigned long e = ERR_get_error();
+    char buf[256];
+    ERR_error_string_n(e, buf, sizeof(buf));
+    fprintf(stderr, "%s: %s\n", what, buf);
+}
+
+// Encrypt a single block with no padding using the given cipher/key
+static bool EncryptOneBlock(const EVP_CIPHER* cipher, const uint8_t* key, int key_size, const uint8_t* iv,
+                            const uint8_t* in, int in_len, uint8_t* out) {
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (ctx == NULL) {
+        PrintSslError("EVP_CIPHER_CTX_new");
+        return false;
+    }
+    bool ok = true;
+    if (EVP_EncryptInit_ex(ctx, cipher, NULL, NULL, NULL) != 1) {
+        PrintSslError("EVP_EncryptInit_ex (cipher)");
+        ok = false;
+    }
+    if (ok && (EVP_CIPHER_CTX_set_key_length(ctx, key_size) != 1)) {
+        PrintSslError("EVP_CIPHER_CTX_set_key_length");
+        ok = false;
+    }
+    if (ok && (EVP_EncryptInit_ex(ctx, NULL, NULL, key, iv) != 1)) {
+        PrintSslError("EVP_EncryptInit_ex (key/iv)");
+        ok = false;
+    }
+    if (ok) {
+        EVP_CIPHER_CTX_set_padding(ctx, 0);
+    }
+    int outl = 0;
+    if (ok && (EVP_EncryptUpdate(ctx, out, &outl, in, in_len) != 1)) {
+        PrintSslError("EVP_EncryptUpdate");
+        ok = false;
+    }
+    int total = outl;
+    int finl = 0;
+    if (ok && (EVP_EncryptFinal_ex(ctx, out + outl, &finl) != 1)) {
+        PrintSslError("EVP_EncryptFinal_ex");
+        ok = false;
+    }
+    total += finl;
+    if (ok && (total != in_len)) {
+        fprintf(stderr, "Unexpected cipher output length: %d != %d\n", total, in_len);
+        ok = false;
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    return ok;
 }
 
 int main(int argc, char** argv) {
@@ -148,45 +203,21 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    // Debugging for libkcapi
-    if (verbosity > 0) {
-        kcapi_set_verbosity(KCAPI_LOG_DEBUG);
-    }
-
-    // Create Kernel Crypto API handles
-    const char* cipher = CipherName(scheme);
-    // - For encryption of the sector
-    struct kcapi_handle* kch_enc = NULL;
-    {
-        const int res = kcapi_cipher_init(&kch_enc, cipher, 0);
-        if (res != 0) {
-            fprintf(stderr, "kcapi_cipher_init(%s) fail: %s\n", cipher, strerror(res));
-            ok = false;
-        }
-        // fprintf(stderr, "IV size: %u\n", kcapi_cipher_ivsize(kch_enc));
-    }
-    // - For encryption of the IV
-    struct kcapi_handle* kch_iv = NULL;
-    if (ok && (scheme == SCHEME_AES_CBC_ESSIV_SHA256)) {
-        const int res = kcapi_cipher_init(&kch_iv, cipher, 0);
-        if (res != 0) {
-            fprintf(stderr, "kcapi_cipher_init(%s) fail: %s\n", cipher, strerror(res));
-            ok = false;
-        }
-    }
+    // Initialise OpenSSL error strings (for nicer diagnostics)
+    ERR_load_crypto_strings();
 
     // Load key
-    while (ok) {
-        uint8_t key[64];
-        int key_size = 0;
+    uint8_t key[64];
+    int key_size = 0;
+    if (ok) {
         FILE* fh = fopen(key_file, "rb");
         if (fh == NULL) {
             fprintf(stderr, "Cannot read %s: %s\n", key_file, strerror(errno));
             ok = false;
-            break;
         } else {
             const int res = fread(key, 1, sizeof(key), fh);
-            if (((scheme == 1) && (res != 32) && (res != 64)) || ((scheme == 2) && (res != 16))) {
+            if (((scheme == SCHEME_AES_XTS_PLAIN) && (res != 32) && (res != 64)) ||
+                ((scheme == SCHEME_AES_CBC_ESSIV_SHA256) && (res != 16))) {
                 fprintf(stderr, "Bad keys size, %s is %d bytes (%d bits)\n", key_file, res, res * 8);
                 ok = false;
             } else {
@@ -194,37 +225,33 @@ int main(int argc, char** argv) {
             }
             fclose(fh);
         }
-
-        if (ok && (key_size > 0)) {
-            const int res = kcapi_cipher_setkey(kch_enc, key, key_size);
-            if (res != 0) {
-                fprintf(stderr, "kcapi_cipher_setkey() fail: %s\n", strerror(res));
-                ok = false;
-            }
-        }
-
-        if (ok && (scheme == SCHEME_AES_CBC_ESSIV_SHA256)) {
-            uint8_t iv_key[256 / 8];
-            const int res = kcapi_md_sha256(key, key_size, iv_key, sizeof(iv_key));
-            if (res != sizeof(iv_key)) {
-                fprintf(stderr, "kcapi_md_sha256() fail: %s\n", strerror(res));
-                ok = false;
-            } else {
-                // fprintf(stderr, "sha256 %02x %02x %02x %02x ...\n", iv_key[0], iv_key[1], iv_key[2], iv_key[3]);
-                const int res2 = kcapi_cipher_setkey(kch_iv, iv_key, sizeof(iv_key));
-                if (res2 != 0) {
-                    fprintf(stderr, "kcapi_cipher_setkey() fail: %s\n", strerror(res2));
-                    ok = false;
-                }
-            }
-        }
-
-        break;
     }
 
-    // Disable libkcapi debugging again, unless user really wants it
-    if (verbosity < 2) {
-        kcapi_set_verbosity(KCAPI_LOG_WARN);
+    // Select ciphers based on scheme and key size
+    const EVP_CIPHER* data_cipher = NULL;
+    const EVP_CIPHER* iv_cipher = NULL;  // Only used for ESSIV
+    uint8_t iv_key[SHA256_DIGEST_LENGTH];
+    if (ok) {
+        switch (scheme) {
+            case SCHEME_AES_XTS_PLAIN:
+                // AES-XTS in OpenSSL: key size is 32 bytes -> AES-128-XTS, 64 bytes -> AES-256-XTS
+                data_cipher = (key_size == 64) ? EVP_aes_256_xts() : EVP_aes_128_xts();
+                break;
+            case SCHEME_AES_CBC_ESSIV_SHA256:
+                data_cipher = EVP_aes_128_cbc();
+                // ESSIV: encrypt the plain IV with AES-CBC keyed by SHA-256(K).
+                // For AES-128 data key, SHA-256 of the key is 32 bytes, so we use AES-256-ECB-equivalent
+                // by doing a single-block CBC with an all-zero IV (effectively ECB for one block).
+                iv_cipher = EVP_aes_256_cbc();
+                if (SHA256(key, key_size, iv_key) == NULL) {
+                    PrintSslError("SHA256");
+                    ok = false;
+                }
+                break;
+            case SCHEME_UNSPECIFIED:
+                ok = false;
+                break;
+        }
     }
 
     // Open input
@@ -272,16 +299,19 @@ int main(int argc, char** argv) {
         fprintf(stderr, "out_file: %s\n", out_file);
         fprintf(stderr, "key_file: %s\n", key_file);
         fprintf(stderr, "scheme:   %s\n", SchemeName(scheme));
-        fprintf(stderr, "cipher:   %s\n", CipherName(scheme));
+        fprintf(stderr, "cipher:   %s\n", CipherName(scheme, key_size));
 
         fprintf(stderr, "Encrypting %" PRIuMAX " bytes (%.0f MiB), %" PRIuMAX " sectors...\n", in_size,
                 (double)in_size / 1024.0 / 1024.0, in_sectors);
 
         const bool do_progress = (isatty(fileno(stderr)) == 1);
 
-        // Initialisation vector (IV)
-        // uint8_t iv[16];
-        // memset(iv, 0, sizeof(iv));
+        // Pre-create a reusable data-encryption context for efficiency
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (ctx == NULL) {
+            PrintSslError("EVP_CIPHER_CTX_new");
+            ok = false;
+        }
 
         // Encrypt each sector separately
         for (uint32_t sector_num = 0; ok && (sector_num < in_sectors); sector_num++) {
@@ -303,23 +333,52 @@ int main(int argc, char** argv) {
             uint8_t iv[16] = {0};
             memcpy(&iv[0], &sector_num, sizeof(sector_num));
             // With ESSIV we encrypt that using E_sha256(K)
-            if (scheme == 2) {
+            if (scheme == SCHEME_AES_CBC_ESSIV_SHA256) {
                 uint8_t nulliv[16] = {0};
-                const int res =
-                    kcapi_cipher_encrypt(kch_iv, iv, sizeof(iv), nulliv, iv, sizeof(iv), KCAPI_ACCESS_HEURISTIC);
-                if (res != sizeof(iv)) {
-                    fprintf(stderr, "IV encryption failure at sector %u: %s!\n", sector_num, strerror(res));
+                uint8_t enc_iv[16];
+                if (!EncryptOneBlock(iv_cipher, iv_key, (int)sizeof(iv_key), nulliv, iv, (int)sizeof(iv), enc_iv)) {
+                    fprintf(stderr, "IV encryption failure at sector %u!\n", sector_num);
                     ok = false;
                     break;
                 }
+                memcpy(iv, enc_iv, sizeof(iv));
             }
 
-            // Encrypt
+            // Encrypt the sector: (re-)init context with the sector IV
             uint8_t encrypted_data[sizeof(sector_data)];
-            const int res = kcapi_cipher_encrypt(kch_enc, sector_data, sizeof(sector_data), iv, encrypted_data,
-                                                 sizeof(encrypted_data), KCAPI_ACCESS_HEURISTIC);
-            if (res != (int)sizeof(encrypted_data)) {
-                fprintf(stderr, "Encryption failure at sector %u: %s!\n", sector_num, strerror(res));
+            if (EVP_EncryptInit_ex(ctx, data_cipher, NULL, NULL, NULL) != 1) {
+                PrintSslError("EVP_EncryptInit_ex (cipher)");
+                ok = false;
+                break;
+            }
+            if (EVP_CIPHER_CTX_set_key_length(ctx, key_size) != 1) {
+                PrintSslError("EVP_CIPHER_CTX_set_key_length");
+                ok = false;
+                break;
+            }
+            if (EVP_EncryptInit_ex(ctx, NULL, NULL, key, iv) != 1) {
+                PrintSslError("EVP_EncryptInit_ex (key/iv)");
+                ok = false;
+                break;
+            }
+            EVP_CIPHER_CTX_set_padding(ctx, 0);
+            int outl = 0;
+            if (EVP_EncryptUpdate(ctx, encrypted_data, &outl, sector_data, (int)sizeof(sector_data)) != 1) {
+                PrintSslError("EVP_EncryptUpdate");
+                fprintf(stderr, "Encryption failure at sector %u\n", sector_num);
+                ok = false;
+                break;
+            }
+            int finl = 0;
+            if (EVP_EncryptFinal_ex(ctx, encrypted_data + outl, &finl) != 1) {
+                PrintSslError("EVP_EncryptFinal_ex");
+                fprintf(stderr, "Encryption failure at sector %u\n", sector_num);
+                ok = false;
+                break;
+            }
+            if ((outl + finl) != (int)sizeof(encrypted_data)) {
+                fprintf(stderr, "Unexpected ciphertext size at sector %u: %d != %d\n", sector_num, outl + finl,
+                        (int)sizeof(encrypted_data));
                 ok = false;
                 break;
             }
@@ -335,7 +394,13 @@ int main(int argc, char** argv) {
         if (do_progress) {
             fprintf(stderr, "\r                                      \r");
         }
+
+        if (ctx != NULL) {
+            EVP_CIPHER_CTX_free(ctx);
+        }
     }
+
+    UNUSED(verbosity);
 
     // Cleanup
     if (in_fh != NULL) {
@@ -345,14 +410,6 @@ int main(int argc, char** argv) {
     if (out_fh != NULL) {
         fclose(out_fh);
         out_fh = NULL;
-    }
-    if (kch_enc != NULL) {
-        kcapi_cipher_destroy(kch_enc);
-        kch_enc = NULL;
-    }
-    if (kch_iv != NULL) {
-        kcapi_cipher_destroy(kch_iv);
-        kch_iv = NULL;
     }
 
     // Are we happy?

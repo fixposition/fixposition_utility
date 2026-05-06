@@ -55,7 +55,7 @@ sudo dmsetup remove gugus
 sudo losetup -d /dev/loop0
 
 # Make a aes-xts-plain encrypted version
-dd if=/dev/urandom bs=1 count=32 >encvrtk2.key # 256 bits
+dd if=/dev/urandom bs=1 count=32 >encrypted_plain.key # 256 bits
 dd if=/dev/zero of=encrypted_plain.img bs=512 count=2048
 sudo losetup /dev/loop0 encrypted_plain.img
 sudo dmsetup create gugus --table "0 2048 crypt aes-xts-plain $(cat encrypted_plain.key | xxd -p | tr -d '\n') 0 /dev/loop0 0"
@@ -78,7 +78,7 @@ md5sum encrypted_plain.img encrypted_plain_nosudo.img
 #   da44c97c0c99383dba0be0f11f188650  encrypted_plain_nosudo.img     Yay, same MD5! :-)
 
 # - scheme 2 aes-cbc-essiv:sha256
-./make-dmcrypt-image -s 2 -i unencrypted.img -o encrypted_essiv_nosudo.img -k encrypted.key
+./make-dmcrypt-image -s 2 -i unencrypted.img -o encrypted_essiv_nosudo.img -k encrypted_essiv.key
 md5sum encrypted.img encrypted_essiv_nosudo.img
 #   e952a4952e7a441314f359d141cac480  encrypted_essiv.img
 #   e952a4952e7a441314f359d141cac480  encrypted_essiv_nosudo.img     Yay, same MD5! :-)
