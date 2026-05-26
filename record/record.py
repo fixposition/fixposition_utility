@@ -216,7 +216,7 @@ class FpRecord:
                 # {'_ok': True, '_message': 'request success', 'product': 'VRTK2_STK', 'hardware': 'NAV_VR2', 'sw_ver': 'fp_release-vr2_2.123.7-576', 'hw_ver': 'v1.4b', 'hostname': 'fp-6d9d2c', 'uid': 'fp-6d9d2c', 'release_tag': 'fp_release-vr2_2.123.7-576'}
                 # {'_ok': True, '_message': 'request success', 'product': 'EAGLE_PBXA1', 'board_name': 'XF_CB_PBXA1', 'board_ver': '03A', 'som_name': 'XF_SM_EAGLE_2', 'som_ver': '01B', 'sw_ver': 'fp_integ_cd0e38c6-2342 (main_a4dfbab2-455809)', 'hostname': 'xf-a0e018', 'uid': 'xf-a0e018'}
 
-                # Handle backwards compatibility
+                # Upgrade old API response schemas (partial, there may be other changes)
                 # - < 2.90.0 / 2.85.3
                 if ('sw_ver' not in data) and ('release_tag' in data):
                     data['sw_ver'] = data.pop('release_tag')
