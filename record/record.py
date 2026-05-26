@@ -99,7 +99,7 @@ class FpRecord:
         sensor_info = self.DetectSensor()
         if sensor_info is None:
             raise Exception(f'Failed detecting sensor!')
-        LOG.info(f"Detected {sensor_info['uid']} ({sensor_info['sw_ver']}, {sensor_info['hardware']} {sensor_info['hw_ver']})")
+        LOG.info(f"Detected {sensor_info['product']} {sensor_info['uid']} ({sensor_info['sw_ver']}, {sensor_info['board_name']} {sensor_info['board_ver']})")
 
         # Check we can get logging status. If not, the sensor probably isn't compatible
         log_status = self.GetStatus()
@@ -212,12 +212,23 @@ class FpRecord:
             with urllib.request.urlopen(f'{self.sensor_api}/sys/info') as res:
                 data = json.loads(res.read())
                 self._debug(f'{data}')
+                # For example:
+                # {'_ok': True, '_message': 'request success', 'product': 'VRTK2_STK', 'hardware': 'NAV_VR2', 'sw_ver': 'fp_release-vr2_2.123.7-576', 'hw_ver': 'v1.4b', 'hostname': 'fp-6d9d2c', 'uid': 'fp-6d9d2c', 'release_tag': 'fp_release-vr2_2.123.7-576'}
+                # {'_ok': True, '_message': 'request success', 'product': 'EAGLE_PBXA1', 'board_name': 'XF_CB_PBXA1', 'board_ver': '03A', 'som_name': 'XF_SM_EAGLE_2', 'som_ver': '01B', 'sw_ver': 'fp_integ_cd0e38c6-2342 (main_a4dfbab2-455809)', 'hostname': 'xf-a0e018', 'uid': 'xf-a0e018'}
+
+                # Handle backwards compatibility
+                # - < 2.90.0 / 2.85.3
                 if ('sw_ver' not in data) and ('release_tag' in data):
-                    data['sw_ver'] = data['release_tag'] # < 2.90.0 / 2.85.3
-                if ('_ok' in data) and data['_ok'] and ('hardware' in data) and ('hw_ver' in data) and ('sw_ver' in data) and ('uid' in data):
+                    data['sw_ver'] = data.pop('release_tag')
+                # - < 2.141.0 had 'hardware' and 'hw_ver'
+                if ('hardware' in data) and ('hw_ver' in data) and ('board_name' not in data) and ('board_ver' not in data): # also: 'som_name', 'som_ver'
+                    data['board_name'] = data.pop('hardware')
+                    data['board_ver'] = data.pop('hw_ver')
+
+                if ('_ok' in data) and data['_ok'] and ('board_name' in data) and ('board_ver' in data) and ('sw_ver' in data) and ('uid' in data) and ('product' in data):
                     return data
         except Exception as ex:
-            self._warning(str(ex))
+            self._warning('failed: ' + str(ex))
         return None
 
     # ------------------------------------------------------------------------------------------------------------------
