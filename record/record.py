@@ -228,7 +228,9 @@ class FpRecord:
                 if ('_ok' in data) and data['_ok'] and ('board_name' in data) and ('board_ver' in data) and ('sw_ver' in data) and ('uid' in data) and ('product' in data):
                     return data
         except Exception as ex:
-            self._warning('failed: ' + str(ex))
+            pass
+
+        self._warning('Unexpected response from /sys/info API: ' + str(data))
         return None
 
     # ------------------------------------------------------------------------------------------------------------------
